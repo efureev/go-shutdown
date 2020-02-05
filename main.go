@@ -15,7 +15,7 @@ type Shutdown struct {
 
 	sigChannel chan os.Signal
 
-	onDestroyFn func(done chan <- bool)
+	onDestroyFn func(done chan<- bool)
 }
 
 // DefaultShutdown is a default instance.
@@ -41,24 +41,21 @@ func (s *Shutdown) Wait(signals ...os.Signal) {
 	done := make(chan bool, 1)
 	doneFn := make(chan bool, 1)
 
-	go func(fn func(done chan <- bool)) {
+	go func(fn func(d chan<- bool), doneFnChan chan<- bool) {
 		defer func() { done <- true }()
 
 		logInfo(s.log, `shutdown started...`)
 
 		if fn != nil {
-			fn(doneFn)
+			fn(doneFnChan)
 		} else {
-			doneFn <- true
+			doneFnChan <- true
 		}
-	}(s.onDestroyFn)
+	}(s.onDestroyFn, doneFn)
 
 	<-doneFn
 	logTrace(s.log, `shutdown complete...`)
 	<-done
-
-
-	logTrace(s.log, `shutdown complete...`)
 }
 
 func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
@@ -67,7 +64,7 @@ func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
 	return s
 }
 
-func (s *Shutdown) OnDestroy(fn func(done chan <- bool)) *Shutdown {
+func (s *Shutdown) OnDestroy(fn func(done chan<- bool)) *Shutdown {
 	s.onDestroyFn = fn
 
 	return s
@@ -89,7 +86,7 @@ func End() {
 	DefaultShutdown.End()
 }
 
-func OnDestroy(fn func(done chan <- bool)) *Shutdown {
+func OnDestroy(fn func(done chan<- bool)) *Shutdown {
 	return DefaultShutdown.OnDestroy(fn)
 }
 
