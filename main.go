@@ -83,8 +83,8 @@ func End() {
 	DefaultShutdown.End()
 }
 
-func OnDestroy(fn func()) () {
-	DefaultShutdown.OnDestroy(fn)
+func OnDestroy(fn func()) *Shutdown {
+	return DefaultShutdown.OnDestroy(fn)
 }
 
 func logTrace(logger ILogger, args ...interface{}) {
