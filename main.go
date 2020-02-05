@@ -15,8 +15,7 @@ type Shutdown struct {
 
 	sigChannel chan os.Signal
 
-	//onDestroyFn   func(mod Modular, ctx context.Context)
-	shutdowningFn func()
+	onDestroyFn func()
 }
 
 // DefaultShutdown is a default instance.
@@ -39,10 +38,6 @@ func (s *Shutdown) Wait(signals ...os.Signal) {
 
 	<-s.sigChannel
 
-	if s.shutdowningFn == nil {
-		s.shutdowningFn = shutdown
-	}
-
 	done := make(chan bool, 1)
 
 	go func(fn func()) {
@@ -50,8 +45,10 @@ func (s *Shutdown) Wait(signals ...os.Signal) {
 
 		logInfo(s.log, `shutdown started...`)
 
-		fn()
-	}(s.shutdowningFn)
+		if fn != nil {
+			fn()
+		}
+	}(s.onDestroyFn)
 
 	<-done
 
@@ -60,6 +57,12 @@ func (s *Shutdown) Wait(signals ...os.Signal) {
 
 func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
 	s.log = l
+
+	return s
+}
+
+func (s *Shutdown) OnDestroy(fn func()) *Shutdown {
+	s.onDestroyFn = fn
 
 	return s
 }
@@ -80,6 +83,10 @@ func End() {
 	DefaultShutdown.End()
 }
 
+func OnDestroy(fn func()) () {
+	DefaultShutdown.OnDestroy(fn)
+}
+
 func logTrace(logger ILogger, args ...interface{}) {
 	if logger != nil {
 		logger.Trace(args...)
@@ -90,8 +97,4 @@ func logInfo(logger ILogger, args ...interface{}) {
 	if logger != nil {
 		logger.Info(args...)
 	}
-}
-
-func shutdown() {
-
 }
