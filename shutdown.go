@@ -9,6 +9,7 @@ import (
 
 var signalsDefault = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
 
+// Shutdown struct
 type Shutdown struct {
 	log     ILogger
 	timeout time.Duration
@@ -21,6 +22,7 @@ type Shutdown struct {
 // DefaultShutdown is a default instance.
 var DefaultShutdown = New()
 
+// New creates new instance of Shutdown
 func New() *Shutdown {
 	sh := &Shutdown{
 		sigChannel: make(chan os.Signal, 1),
@@ -29,6 +31,7 @@ func New() *Shutdown {
 	return sh
 }
 
+// Wait waiting for signal
 func (s *Shutdown) Wait(signals ...os.Signal) (err error) {
 	if len(signals) == 0 {
 		signals = signalsDefault
@@ -56,34 +59,41 @@ func (s *Shutdown) Wait(signals ...os.Signal) (err error) {
 	return err
 }
 
+// SetLogger set instance logger
 func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
 	s.log = l
 
 	return s
 }
 
+// OnDestroy apply user-function to execute on app/service terminating
 func (s *Shutdown) OnDestroy(fn func() error) *Shutdown {
 	s.onDestroyFn = fn
 
 	return s
 }
 
+// End send signal for shutting down
 func (s *Shutdown) End() {
 	s.sigChannel <- syscall.SIGQUIT
 }
 
+// Wait is alias for New().Wait(...)
 func Wait(signals ...os.Signal) error {
 	return DefaultShutdown.Wait(signals...)
 }
 
+// WaitWithLogger is alias for New().SetLogger(logger).Wait(...)
 func WaitWithLogger(logger ILogger, signals ...os.Signal) error {
 	return DefaultShutdown.SetLogger(logger).Wait(signals...)
 }
 
+// End is alias for New().End()
 func End() {
 	DefaultShutdown.End()
 }
 
+// OnDestroy is alias for New().OnDestroy(fn)
 func OnDestroy(fn func() error) *Shutdown {
 	return DefaultShutdown.OnDestroy(fn)
 }
