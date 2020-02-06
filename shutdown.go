@@ -15,7 +15,7 @@ type Shutdown struct {
 
 	sigChannel chan os.Signal
 
-	onDestroyFn func()
+	onDestroyFn func() error
 }
 
 // DefaultShutdown is a default instance.
@@ -29,7 +29,7 @@ func New() *Shutdown {
 	return sh
 }
 
-func (s *Shutdown) Wait(signals ...os.Signal) {
+func (s *Shutdown) Wait(signals ...os.Signal) (err error) {
 	if len(signals) == 0 {
 		signals = signalsDefault
 	}
@@ -40,18 +40,20 @@ func (s *Shutdown) Wait(signals ...os.Signal) {
 
 	done := make(chan bool, 1)
 
-	go func(fn func()) {
+	go func(fn func() error) {
 		defer func() { done <- true }()
 
 		logInfo(s.log, `shutdown started...`)
 
 		if fn != nil {
-			fn()
+			err = fn()
 		}
 	}(s.onDestroyFn)
 
 	<-done
 	logTrace(s.log, `shutdown complete...`)
+
+	return err
 }
 
 func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
@@ -60,7 +62,7 @@ func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
 	return s
 }
 
-func (s *Shutdown) OnDestroy(fn func()) *Shutdown {
+func (s *Shutdown) OnDestroy(fn func() error) *Shutdown {
 	s.onDestroyFn = fn
 
 	return s
@@ -70,19 +72,19 @@ func (s *Shutdown) End() {
 	s.sigChannel <- syscall.SIGQUIT
 }
 
-func Wait(signals ...os.Signal) {
-	DefaultShutdown.Wait(signals...)
+func Wait(signals ...os.Signal) error {
+	return DefaultShutdown.Wait(signals...)
 }
 
-func WaitWithLogger(logger ILogger, signals ...os.Signal) {
-	DefaultShutdown.SetLogger(logger).Wait(signals...)
+func WaitWithLogger(logger ILogger, signals ...os.Signal) error {
+	return DefaultShutdown.SetLogger(logger).Wait(signals...)
 }
 
 func End() {
 	DefaultShutdown.End()
 }
 
-func OnDestroy(fn func()) *Shutdown {
+func OnDestroy(fn func() error) *Shutdown {
 	return DefaultShutdown.OnDestroy(fn)
 }
 
