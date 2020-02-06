@@ -34,9 +34,8 @@ func main() {
 	//..
     
     shutdown.
-        OnDestroy(func(done chan<- bool) {
+        OnDestroy(func() {
             module.processing.EndJobListen()
-            done <- true
         }).
         SetLogger(module.Log()).
         Wait()
