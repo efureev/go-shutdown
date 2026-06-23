@@ -8,7 +8,7 @@ import (
 )
 
 var fn = func(s os.Signal) {
-	time.Sleep(1 * time.Second)
+	time.Sleep(50 * time.Millisecond)
 	p, err := os.FindProcess(os.Getpid())
 
 	if err != nil {

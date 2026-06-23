@@ -1,18 +1,17 @@
 /*
-Package `shutdown` is intended for graceful shutdown for your app/processes.
+Package shutdown is intended for graceful shutdown for your app/processes.
 
+The simplest way to use Shutdown:
 
-The simplest way to use `Shutdown`:
+	package main
 
-  package main
+	import "github.com/efureev/go-shutdown"
 
-  import "github.com/efureev/go-shutdown"
+	func main() {
+		//..
 
-func main() {
-	//..
-
-    shutdown.Wait()
-}
+		shutdown.Wait()
+	}
 
 For a full guide visit https://github.com/efureev/go-shutdown
 */
