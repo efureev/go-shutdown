@@ -1,53 +1,100 @@
-![Go package](https://github.com/efureev/go-shutdown/workflows/Go%20package/badge.svg?branch=master)
-[![Build Status](https://travis-ci.com/efureev/go-shutdown.svg?branch=master)](https://travis-ci.com/efureev/go-shutdown)
+[![Test](https://github.com/efureev/go-shutdown/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/go-shutdown/actions/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/efureev/go-shutdown.svg)](https://pkg.go.dev/github.com/efureev/go-shutdown)
 [![Go Report Card](https://goreportcard.com/badge/github.com/efureev/go-shutdown)](https://goreportcard.com/report/github.com/efureev/go-shutdown)
-[![Codacy Badge](https://api.codacy.com/project/badge/Grade/b9b3b425d3b34069a4094ef99a982a85)](https://www.codacy.com/manual/efureev/go-shutdown?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=efureev/go-shutdown&amp;utm_campaign=Badge_Grade)
-[![Maintainability](https://api.codeclimate.com/v1/badges/b5c1678bafd0687f3070/maintainability)](https://codeclimate.com/github/efureev/go-shutdown/maintainability)
 
-# Shutdown 
+# Shutdown
 
-It's a package for graceful shutdown your app or process
+`go-shutdown` — небольшой пакет для **graceful shutdown** Go-приложений и
+сервисов.
 
-## Install
+Он блокирует выполнение и ожидает сигналы операционной системы
+(по умолчанию `SIGINT`, `SIGTERM`, `SIGQUIT`), а при их получении выполняет
+вашу функцию очистки (закрытие соединений, остановка воркеров, сброс буферов
+и т.п.) перед завершением процесса.
+
+## Возможности
+
+- Ожидание стандартных или произвольных сигналов ОС.
+- Пользовательский хук очистки `OnDestroy(func() error)`.
+- Опциональный логгер через интерфейс `ILogger`.
+- Ручная инициация остановки методом `End()`.
+- Готовый к использованию глобальный экземпляр и пакетные алиасы
+  (`Wait`, `WaitWithLogger`, `OnDestroy`, `End`), а также собственный
+  экземпляр через `New()`.
+
+## Установка
 
 ```bash
 go get -u github.com/efureev/go-shutdown
 ```
 
-Golang app shutdown.
+## Примеры использования
 
-## Examples
+Простейший вариант — дождаться сигнала завершения:
 
 ```go
 import "github.com/efureev/go-shutdown"
 
 func main() {
-	//..
-    
+    // ... запуск приложения ...
+
     shutdown.Wait()
 }
 ```
 
+Ожидание конкретных сигналов с логгером:
+
 ```go
-import "github.com/efureev/go-shutdown"
+import (
+    "syscall"
+
+    "github.com/efureev/go-shutdown"
+)
 
 func main() {
-	//..
-    
+    // ... запуск приложения ...
+
     shutdown.WaitWithLogger(logger, syscall.SIGINT, syscall.SIGTERM)
 }
 ```
+
+С функцией очистки и логгером (обратите внимание: колбэк возвращает `error`):
+
 ```go
 import "github.com/efureev/go-shutdown"
 
 func main() {
-	//..
-    
-    shutdown.
-        OnDestroy(func() {
-            module.processing.EndJobListen()
+    // ... запуск приложения ...
+
+    err := shutdown.
+        OnDestroy(func() error {
+            return module.processing.EndJobListen()
         }).
         SetLogger(module.Log()).
         Wait()
+    if err != nil {
+        // обработка ошибки очистки
+    }
 }
 ```
+
+Отдельный экземпляр (рекомендуется вместо общего глобального состояния):
+
+```go
+sh := shutdown.New().
+    OnDestroy(func() error { return srv.Close() })
+
+if err := sh.Wait(); err != nil {
+    log.Fatal(err)
+}
+```
+
+## Документация и анализ
+
+- `docs/REVIEW.md` — критический анализ пакета.
+- `docs/TASKS.md` — ТЗ на исправление багов и недочётов.
+- `docs/IMPROVEMENTS.md` — предложения по развитию.
+
+## Лицензия
+
+См. файл [LICENSE](LICENSE).

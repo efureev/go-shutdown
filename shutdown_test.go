@@ -181,6 +181,107 @@ func TestShutdown(t *testing.T) {
 	})
 }
 
+func TestShutdownEndSafety(t *testing.T) {
+
+	Convey("End is safe", t, func() {
+
+		Convey("End before Wait does not block and stops Wait", func() {
+			sh := New()
+			sh.End()
+
+			done := make(chan error, 1)
+			go func() { done <- sh.Wait() }()
+
+			select {
+			case err := <-done:
+				So(err, ShouldBeNil)
+			case <-time.After(time.Second):
+				t.Fatal("Wait did not return after early End")
+			}
+		})
+
+		Convey("Repeated End does not block", func() {
+			sh := New()
+
+			finished := make(chan struct{})
+			go func() {
+				sh.End()
+				sh.End()
+				sh.End()
+				close(finished)
+			}()
+
+			select {
+			case <-finished:
+			case <-time.After(time.Second):
+				t.Fatal("repeated End blocked")
+			}
+
+			err := sh.Wait()
+			So(err, ShouldBeNil)
+		})
+
+		Convey("End after Wait completed does not block", func() {
+			sh := New()
+
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				sh.End()
+			}()
+
+			So(sh.Wait(), ShouldBeNil)
+
+			finished := make(chan struct{})
+			go func() {
+				sh.End()
+				close(finished)
+			}()
+
+			select {
+			case <-finished:
+			case <-time.After(time.Second):
+				t.Fatal("End after Wait blocked")
+			}
+		})
+	})
+}
+
+func TestShutdownTimeout(t *testing.T) {
+
+	Convey("Timeout for OnDestroy", t, func() {
+
+		Convey("Slow destroy returns ErrShutdownTimeout", func() {
+			sh := New().
+				SetTimeout(20 * time.Millisecond).
+				OnDestroy(func() error {
+					time.Sleep(500 * time.Millisecond)
+					return nil
+				})
+
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				sh.End()
+			}()
+
+			err := sh.Wait()
+			So(err, ShouldEqual, ErrShutdownTimeout)
+		})
+
+		Convey("Fast destroy completes within timeout", func() {
+			sh := New().
+				SetTimeout(time.Second).
+				OnDestroy(func() error { return nil })
+
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				sh.End()
+			}()
+
+			So(sh.Wait(), ShouldBeNil)
+		})
+	})
+}
+
 type mockLogger struct {
 	Logs []interface{}
 }

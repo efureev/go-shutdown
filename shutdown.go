@@ -1,6 +1,7 @@
 package shutdown
 
 import (
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -9,12 +10,17 @@ import (
 
 var signalsDefault = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
 
+// ErrShutdownTimeout is returned by Wait when the OnDestroy function
+// did not complete within the configured timeout.
+var ErrShutdownTimeout = errors.New("shutdown: destroy function timeout")
+
 // Shutdown struct
 type Shutdown struct {
 	log     ILogger
 	timeout time.Duration
 
 	sigChannel chan os.Signal
+	done       chan struct{}
 
 	onDestroyFn func() error
 }
@@ -26,42 +32,72 @@ var DefaultShutdown = New()
 func New() *Shutdown {
 	sh := &Shutdown{
 		sigChannel: make(chan os.Signal, 1),
+		done:       make(chan struct{}, 1),
 	}
 
 	return sh
 }
 
 // Wait waiting for signal
-func (s *Shutdown) Wait(signals ...os.Signal) (err error) {
+func (s *Shutdown) Wait(signals ...os.Signal) error {
 	if len(signals) == 0 {
 		signals = signalsDefault
 	}
 
 	signal.Notify(s.sigChannel, signals...)
+	defer signal.Stop(s.sigChannel)
 
-	<-s.sigChannel
+	select {
+	case <-s.sigChannel:
+	case <-s.done:
+	}
 
-	done := make(chan bool, 1)
+	logInfo(s.log, `shutdown started...`)
 
-	go func(fn func() error) {
-		defer func() { done <- true }()
+	err := s.runOnDestroy()
 
-		logInfo(s.log, `shutdown started...`)
-
-		if fn != nil {
-			err = fn()
-		}
-	}(s.onDestroyFn)
-
-	<-done
 	logTrace(s.log, `shutdown complete...`)
 
 	return err
 }
 
+// runOnDestroy executes the user destroy function (if any).
+// When a timeout is configured the function runs in a separate goroutine
+// and ErrShutdownTimeout is returned if it does not finish in time.
+func (s *Shutdown) runOnDestroy() error {
+	if s.onDestroyFn == nil {
+		return nil
+	}
+
+	if s.timeout <= 0 {
+		return s.onDestroyFn()
+	}
+
+	resCh := make(chan error, 1)
+	go func() { resCh <- s.onDestroyFn() }()
+
+	timer := time.NewTimer(s.timeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-resCh:
+		return err
+	case <-timer.C:
+		return ErrShutdownTimeout
+	}
+}
+
 // SetLogger set instance logger
 func (s *Shutdown) SetLogger(l ILogger) *Shutdown {
 	s.log = l
+
+	return s
+}
+
+// SetTimeout limits the time allowed for the OnDestroy function to complete.
+// A non-positive duration (default) means no timeout.
+func (s *Shutdown) SetTimeout(d time.Duration) *Shutdown {
+	s.timeout = d
 
 	return s
 }
@@ -73,9 +109,13 @@ func (s *Shutdown) OnDestroy(fn func() error) *Shutdown {
 	return s
 }
 
-// End send signal for shutting down
+// End triggers the shutdown manually. It is non-blocking and safe to call
+// multiple times, before or after Wait.
 func (s *Shutdown) End() {
-	s.sigChannel <- syscall.SIGQUIT
+	select {
+	case s.done <- struct{}{}:
+	default:
+	}
 }
 
 // Wait is alias for New().Wait(...)
