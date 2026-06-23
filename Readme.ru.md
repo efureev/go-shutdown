@@ -28,7 +28,7 @@
 ## Установка
 
 ```bash
-go get -u github.com/efureev/go-shutdown
+go get -u github.com/efureev/go-shutdown/v2
 ```
 
 ## Примеры использования
@@ -36,7 +36,7 @@ go get -u github.com/efureev/go-shutdown
 Простейший вариант — дождаться сигнала завершения:
 
 ```go
-import "github.com/efureev/go-shutdown"
+import "github.com/efureev/go-shutdown/v2"
 
 func main() {
     // ... запуск приложения ...
@@ -51,7 +51,7 @@ func main() {
 import (
     "syscall"
 
-    "github.com/efureev/go-shutdown"
+    "github.com/efureev/go-shutdown/v2"
 )
 
 func main() {
@@ -68,7 +68,7 @@ func main() {
 import (
     "context"
 
-    "github.com/efureev/go-shutdown"
+    "github.com/efureev/go-shutdown/v2"
 )
 
 func main() {

@@ -5,7 +5,7 @@ The simplest way to use Shutdown:
 
 	package main
 
-	import "github.com/efureev/go-shutdown"
+	import "github.com/efureev/go-shutdown/v2"
 
 	func main() {
 		//..

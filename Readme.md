@@ -30,7 +30,7 @@ the process exits.
 ## Installation
 
 ```bash
-go get -u github.com/efureev/go-shutdown
+go get -u github.com/efureev/go-shutdown/v2
 ```
 
 ## Usage examples
@@ -38,7 +38,7 @@ go get -u github.com/efureev/go-shutdown
 The simplest case — wait for a termination signal:
 
 ```go
-import "github.com/efureev/go-shutdown"
+import "github.com/efureev/go-shutdown/v2"
 
 func main() {
     // ... start the application ...
@@ -53,7 +53,7 @@ Wait for specific signals with a logger:
 import (
     "syscall"
 
-    "github.com/efureev/go-shutdown"
+    "github.com/efureev/go-shutdown/v2"
 )
 
 func main() {
@@ -70,7 +70,7 @@ With a cleanup function and a logger (the callback receives a
 import (
     "context"
 
-    "github.com/efureev/go-shutdown"
+    "github.com/efureev/go-shutdown/v2"
 )
 
 func main() {
