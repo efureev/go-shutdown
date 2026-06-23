@@ -4,48 +4,50 @@
 
 # Shutdown
 
-`go-shutdown` — небольшой пакет для **graceful shutdown** Go-приложений и
-сервисов.
+> Read this in other languages: [Русский](Readme.ru.md)
 
-Он блокирует выполнение и ожидает сигналы операционной системы
-(по умолчанию `SIGINT`, `SIGTERM`, `SIGQUIT`), а при их получении выполняет
-вашу функцию очистки (закрытие соединений, остановка воркеров, сброс буферов
-и т.п.) перед завершением процесса.
+`go-shutdown` is a small package for **graceful shutdown** of Go applications
+and services.
 
-## Возможности
+It blocks execution and waits for operating system signals (by default
+`SIGINT`, `SIGTERM`, `SIGQUIT`), and when one is received it runs your cleanup
+function (closing connections, stopping workers, flushing buffers, etc.) before
+the process exits.
 
-- Ожидание стандартных или произвольных сигналов ОС.
-- Пользовательский хук очистки `OnDestroy(func(context.Context) error)`.
-- Ограничение времени очистки через `SetTimeout(d)` (по таймауту колбэк
-  получает отменённый контекст, возвращается `ErrShutdownTimeout`).
-- Интеграция с `context.Context` через `WaitContext(ctx, ...)`.
-- Опциональный логгер через интерфейс `Logger`.
-- Ручная инициация остановки методом `End()` (неблокирующий, идемпотентный).
-- Готовый к использованию глобальный экземпляр и пакетные алиасы
-  (`Wait`, `WaitWithLogger`, `OnDestroy`, `End`), а также собственный
-  экземпляр через `New()`.
+## Features
 
-## Установка
+- Waiting for standard or custom OS signals.
+- A user cleanup hook `OnDestroy(func(context.Context) error)`.
+- Limiting the cleanup time via `SetTimeout(d)` (on timeout the callback
+  receives a canceled context and `ErrShutdownTimeout` is returned).
+- Integration with `context.Context` via `WaitContext(ctx, ...)`.
+- An optional logger through the `Logger` interface.
+- Manual shutdown triggering via `End()` (non-blocking, idempotent).
+- A ready-to-use global instance and package-level aliases
+  (`Wait`, `WaitWithLogger`, `OnDestroy`, `End`), as well as a dedicated
+  instance via `New()`.
+
+## Installation
 
 ```bash
 go get -u github.com/efureev/go-shutdown
 ```
 
-## Примеры использования
+## Usage examples
 
-Простейший вариант — дождаться сигнала завершения:
+The simplest case — wait for a termination signal:
 
 ```go
 import "github.com/efureev/go-shutdown"
 
 func main() {
-    // ... запуск приложения ...
+    // ... start the application ...
 
     shutdown.Wait()
 }
 ```
 
-Ожидание конкретных сигналов с логгером:
+Wait for specific signals with a logger:
 
 ```go
 import (
@@ -55,14 +57,14 @@ import (
 )
 
 func main() {
-    // ... запуск приложения ...
+    // ... start the application ...
 
     shutdown.WaitWithLogger(logger, syscall.SIGINT, syscall.SIGTERM)
 }
 ```
 
-С функцией очистки и логгером (колбэк получает `context.Context` и
-возвращает `error`):
+With a cleanup function and a logger (the callback receives a
+`context.Context` and returns an `error`):
 
 ```go
 import (
@@ -72,7 +74,7 @@ import (
 )
 
 func main() {
-    // ... запуск приложения ...
+    // ... start the application ...
 
     err := shutdown.
         OnDestroy(func(ctx context.Context) error {
@@ -81,12 +83,12 @@ func main() {
         SetLogger(module.Log()).
         Wait()
     if err != nil {
-        // обработка ошибки очистки
+        // handle cleanup error
     }
 }
 ```
 
-Отдельный экземпляр (рекомендуется вместо общего глобального состояния):
+A dedicated instance (recommended over the shared global state):
 
 ```go
 sh := shutdown.New().
@@ -98,7 +100,7 @@ if err := sh.Wait(); err != nil {
 }
 ```
 
-Остановка по сигналу либо по отмене внешнего контекста:
+Stop on a signal or on the cancellation of an external context:
 
 ```go
 ctx, cancel := context.WithCancel(context.Background())
@@ -109,6 +111,6 @@ if err := shutdown.New().WaitContext(ctx); err != nil {
 }
 ```
 
-## Лицензия
+## License
 
-См. файл [LICENSE](LICENSE).
+See the [LICENSE](LICENSE) file.
