@@ -15,9 +15,12 @@
 ## Возможности
 
 - Ожидание стандартных или произвольных сигналов ОС.
-- Пользовательский хук очистки `OnDestroy(func() error)`.
-- Опциональный логгер через интерфейс `ILogger`.
-- Ручная инициация остановки методом `End()`.
+- Пользовательский хук очистки `OnDestroy(func(context.Context) error)`.
+- Ограничение времени очистки через `SetTimeout(d)` (по таймауту колбэк
+  получает отменённый контекст, возвращается `ErrShutdownTimeout`).
+- Интеграция с `context.Context` через `WaitContext(ctx, ...)`.
+- Опциональный логгер через интерфейс `Logger`.
+- Ручная инициация остановки методом `End()` (неблокирующий, идемпотентный).
 - Готовый к использованию глобальный экземпляр и пакетные алиасы
   (`Wait`, `WaitWithLogger`, `OnDestroy`, `End`), а также собственный
   экземпляр через `New()`.
@@ -58,17 +61,22 @@ func main() {
 }
 ```
 
-С функцией очистки и логгером (обратите внимание: колбэк возвращает `error`):
+С функцией очистки и логгером (колбэк получает `context.Context` и
+возвращает `error`):
 
 ```go
-import "github.com/efureev/go-shutdown"
+import (
+    "context"
+
+    "github.com/efureev/go-shutdown"
+)
 
 func main() {
     // ... запуск приложения ...
 
     err := shutdown.
-        OnDestroy(func() error {
-            return module.processing.EndJobListen()
+        OnDestroy(func(ctx context.Context) error {
+            return module.processing.EndJobListen(ctx)
         }).
         SetLogger(module.Log()).
         Wait()
@@ -82,18 +90,24 @@ func main() {
 
 ```go
 sh := shutdown.New().
-    OnDestroy(func() error { return srv.Close() })
+    SetTimeout(10 * time.Second).
+    OnDestroy(func(ctx context.Context) error { return srv.Shutdown(ctx) })
 
 if err := sh.Wait(); err != nil {
     log.Fatal(err)
 }
 ```
 
-## Документация и анализ
+Остановка по сигналу либо по отмене внешнего контекста:
 
-- `docs/REVIEW.md` — критический анализ пакета.
-- `docs/TASKS.md` — ТЗ на исправление багов и недочётов.
-- `docs/IMPROVEMENTS.md` — предложения по развитию.
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+if err := shutdown.New().WaitContext(ctx); err != nil {
+    log.Fatal(err)
+}
+```
 
 ## Лицензия
 

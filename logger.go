@@ -1,7 +1,8 @@
 package shutdown
 
-// ILogger interface
-type ILogger interface {
-	Trace(args ...interface{})
-	Info(args ...interface{})
+// Logger is the optional logging interface used by Shutdown to report
+// the progress of the shutdown sequence.
+type Logger interface {
+	Trace(args ...any)
+	Info(args ...any)
 }

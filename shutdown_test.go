@@ -1,297 +1,340 @@
 package shutdown
 
 import (
+	"context"
 	"errors"
 	"os"
 	"syscall"
 	"testing"
 	"time"
-
-	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestShutdown(t *testing.T) {
+// signalSelf sends the given signal to the current process after a short delay,
+// giving Wait time to subscribe first.
+func signalSelf(t *testing.T, s os.Signal) {
+	t.Helper()
 
-	Convey("Test Shutdown", t, func() {
+	time.Sleep(10 * time.Millisecond)
 
-		sh := New()
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Errorf("find process: %v", err)
+		return
+	}
 
-		fn := func(s os.Signal) {
-			time.Sleep(10 * time.Millisecond)
-			p, err := os.FindProcess(os.Getpid())
+	if err := p.Signal(s); err != nil {
+		t.Errorf("signal process: %v", err)
+	}
+}
 
-			if err != nil {
-				panic(err.Error())
-			}
-			err = p.Signal(s)
-			if err != nil {
-				panic(err.Error())
+func TestShutdownWaitBySignal(t *testing.T) {
+	t.Run("default signals", func(t *testing.T) {
+		for _, sig := range signalsDefault {
+			go signalSelf(t, sig)
+
+			if err := New().Wait(); err != nil {
+				t.Fatalf("Wait(%v) returned error: %v", sig, err)
 			}
 		}
-
-		Convey("Interrupt by default signals", func() {
-			for _, v := range signalsDefault {
-				go fn(v)
-				err := sh.Wait()
-
-				So(err, ShouldBeNil)
-			}
-		})
-
-		Convey("Interrupt by exactly signal", func() {
-			go fn(syscall.SIGTERM)
-			err := sh.Wait(syscall.SIGTERM)
-
-			So(err, ShouldBeNil)
-		})
-
-		Convey("Interrupt by other signal", func() {
-			go fn(syscall.SIGHUP)
-			err := sh.Wait(syscall.SIGHUP)
-
-			So(err, ShouldBeNil)
-		})
-
-		Convey("Interrupt by manual call", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
-
-			err := sh.Wait()
-
-			So(err, ShouldBeNil)
-		})
-
-		Convey("Interrupt with userFunction wo error", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
-
-			var test = ``
-			err := sh.OnDestroy(func() error {
-				test = `test`
-				return nil
-			}).Wait()
-
-			So(err, ShouldBeNil)
-			So(test, ShouldEqual, `test`)
-		})
-
-		Convey("Interrupt with userFunction with error", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
-
-			err := sh.OnDestroy(func() error {
-				return errors.New(`error test`)
-			}).Wait()
-
-			So(err, ShouldBeError, `error test`)
-		})
-
-		Convey("Interrupt with logger", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
-
-			logger := new(mockLogger)
-			err := sh.SetLogger(logger).Wait()
-
-			So(err, ShouldBeNil)
-			So(logger.Logs[0], ShouldEqual, `shutdown started...`)
-			So(logger.Logs[1], ShouldEqual, `shutdown complete...`)
-		})
 	})
 
-	Convey("Test Default Shutdown", t, func() {
+	t.Run("exact signal", func(t *testing.T) {
+		go signalSelf(t, syscall.SIGTERM)
 
-		fn := func(s os.Signal) {
+		if err := New().Wait(syscall.SIGTERM); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+	})
+
+	t.Run("custom signal", func(t *testing.T) {
+		go signalSelf(t, syscall.SIGHUP)
+
+		if err := New().Wait(syscall.SIGHUP); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+	})
+}
+
+func TestShutdownWaitByManualEnd(t *testing.T) {
+	sh := New()
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		sh.End()
+	}()
+
+	if err := sh.Wait(); err != nil {
+		t.Fatalf("Wait returned error: %v", err)
+	}
+}
+
+func TestShutdownOnDestroy(t *testing.T) {
+	t.Run("without error", func(t *testing.T) {
+		sh := New()
+		go func() {
 			time.Sleep(10 * time.Millisecond)
-			p, err := os.FindProcess(os.Getpid())
+			sh.End()
+		}()
 
-			if err != nil {
-				panic(err.Error())
-			}
-			err = p.Signal(s)
-			if err != nil {
-				panic(err.Error())
-			}
+		called := false
+		err := sh.OnDestroy(func(_ context.Context) error {
+			called = true
+			return nil
+		}).Wait()
+
+		if err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+		if !called {
+			t.Fatal("OnDestroy callback was not called")
+		}
+	})
+
+	t.Run("with error", func(t *testing.T) {
+		sh := New()
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			sh.End()
+		}()
+
+		wantErr := errors.New("error test")
+		err := sh.OnDestroy(func(_ context.Context) error {
+			return wantErr
+		}).Wait()
+
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("Wait returned %v, want %v", err, wantErr)
+		}
+	})
+}
+
+func TestShutdownWithLogger(t *testing.T) {
+	sh := New()
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		sh.End()
+	}()
+
+	logger := new(mockLogger)
+	if err := sh.SetLogger(logger).Wait(); err != nil {
+		t.Fatalf("Wait returned error: %v", err)
+	}
+
+	assertLoggerMessages(t, logger)
+}
+
+func TestDefaultShutdown(t *testing.T) {
+	t.Run("manual end", func(t *testing.T) {
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			End()
+		}()
+
+		if err := Wait(); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+	})
+
+	t.Run("on destroy", func(t *testing.T) {
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			End()
+		}()
+
+		called := false
+		err := OnDestroy(func(_ context.Context) error {
+			called = true
+			return nil
+		}).Wait()
+
+		if err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+		if !called {
+			t.Fatal("OnDestroy callback was not called")
+		}
+	})
+
+	t.Run("with logger", func(t *testing.T) {
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			End()
+		}()
+
+		logger := new(mockLogger)
+		if err := WaitWithLogger(logger); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
 		}
 
-		Convey("Interrupt by default signals", func() {
-			for _, v := range signalsDefault {
-				go fn(v)
-				err := Wait()
-
-				So(err, ShouldBeNil)
-			}
-		})
-
-		Convey("Interrupt by manual call", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				End()
-			}()
-
-			err := Wait()
-
-			So(err, ShouldBeNil)
-		})
-
-		Convey("Interrupt with userFunction wo error", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				End()
-			}()
-
-			test := ``
-			err := OnDestroy(func() error {
-				test = `test`
-				return nil
-			}).Wait()
-
-			So(err, ShouldBeNil)
-			So(test, ShouldEqual, `test`)
-		})
-
-		Convey("Interrupt with logger", func() {
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				End()
-			}()
-
-			logger := new(mockLogger)
-			err := WaitWithLogger(logger)
-
-			So(err, ShouldBeNil)
-			So(logger.Logs[0], ShouldEqual, `shutdown started...`)
-			So(logger.Logs[1], ShouldEqual, `shutdown complete...`)
-		})
+		assertLoggerMessages(t, logger)
 	})
 }
 
 func TestShutdownEndSafety(t *testing.T) {
+	t.Run("End before Wait does not block and stops Wait", func(t *testing.T) {
+		sh := New()
+		sh.End()
 
-	Convey("End is safe", t, func() {
+		done := make(chan error, 1)
+		go func() { done <- sh.Wait() }()
 
-		Convey("End before Wait does not block and stops Wait", func() {
-			sh := New()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Wait returned error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Wait did not return after early End")
+		}
+	})
+
+	t.Run("repeated End does not block", func(t *testing.T) {
+		sh := New()
+
+		finished := make(chan struct{})
+		go func() {
 			sh.End()
+			sh.End()
+			sh.End()
+			close(finished)
+		}()
 
-			done := make(chan error, 1)
-			go func() { done <- sh.Wait() }()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("repeated End blocked")
+		}
 
-			select {
-			case err := <-done:
-				So(err, ShouldBeNil)
-			case <-time.After(time.Second):
-				t.Fatal("Wait did not return after early End")
-			}
-		})
+		if err := sh.Wait(); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
+	})
 
-		Convey("Repeated End does not block", func() {
-			sh := New()
+	t.Run("End after Wait completed does not block", func(t *testing.T) {
+		sh := New()
 
-			finished := make(chan struct{})
-			go func() {
-				sh.End()
-				sh.End()
-				sh.End()
-				close(finished)
-			}()
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			sh.End()
+		}()
 
-			select {
-			case <-finished:
-			case <-time.After(time.Second):
-				t.Fatal("repeated End blocked")
-			}
+		if err := sh.Wait(); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
 
-			err := sh.Wait()
-			So(err, ShouldBeNil)
-		})
+		finished := make(chan struct{})
+		go func() {
+			sh.End()
+			close(finished)
+		}()
 
-		Convey("End after Wait completed does not block", func() {
-			sh := New()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("End after Wait blocked")
+		}
+	})
+}
 
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
+func TestShutdownWaitContext(t *testing.T) {
+	t.Run("returns when context is canceled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
 
-			So(sh.Wait(), ShouldBeNil)
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
 
-			finished := make(chan struct{})
-			go func() {
-				sh.End()
-				close(finished)
-			}()
+		if err := New().WaitContext(ctx); err != nil {
+			t.Fatalf("WaitContext returned error: %v", err)
+		}
+	})
 
-			select {
-			case <-finished:
-			case <-time.After(time.Second):
-				t.Fatal("End after Wait blocked")
-			}
-		})
+	t.Run("OnDestroy context is canceled on timeout", func(t *testing.T) {
+		canceled := make(chan struct{}, 1)
+
+		sh := New().
+			SetTimeout(20 * time.Millisecond).
+			OnDestroy(func(ctx context.Context) error {
+				<-ctx.Done()
+				canceled <- struct{}{}
+				return ctx.Err()
+			})
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			sh.End()
+		}()
+
+		if err := sh.Wait(); !errors.Is(err, ErrShutdownTimeout) {
+			t.Fatalf("Wait returned %v, want %v", err, ErrShutdownTimeout)
+		}
+
+		select {
+		case <-canceled:
+		case <-time.After(time.Second):
+			t.Fatal("destroy context was not canceled on timeout")
+		}
 	})
 }
 
 func TestShutdownTimeout(t *testing.T) {
+	t.Run("slow destroy returns ErrShutdownTimeout", func(t *testing.T) {
+		sh := New().
+			SetTimeout(20 * time.Millisecond).
+			OnDestroy(func(_ context.Context) error {
+				time.Sleep(500 * time.Millisecond)
+				return nil
+			})
 
-	Convey("Timeout for OnDestroy", t, func() {
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			sh.End()
+		}()
 
-		Convey("Slow destroy returns ErrShutdownTimeout", func() {
-			sh := New().
-				SetTimeout(20 * time.Millisecond).
-				OnDestroy(func() error {
-					time.Sleep(500 * time.Millisecond)
-					return nil
-				})
+		if err := sh.Wait(); !errors.Is(err, ErrShutdownTimeout) {
+			t.Fatalf("Wait returned %v, want %v", err, ErrShutdownTimeout)
+		}
+	})
 
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
+	t.Run("fast destroy completes within timeout", func(t *testing.T) {
+		sh := New().
+			SetTimeout(time.Second).
+			OnDestroy(func(_ context.Context) error { return nil })
 
-			err := sh.Wait()
-			So(err, ShouldEqual, ErrShutdownTimeout)
-		})
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			sh.End()
+		}()
 
-		Convey("Fast destroy completes within timeout", func() {
-			sh := New().
-				SetTimeout(time.Second).
-				OnDestroy(func() error { return nil })
-
-			go func() {
-				time.Sleep(10 * time.Millisecond)
-				sh.End()
-			}()
-
-			So(sh.Wait(), ShouldBeNil)
-		})
+		if err := sh.Wait(); err != nil {
+			t.Fatalf("Wait returned error: %v", err)
+		}
 	})
 }
 
-type mockLogger struct {
-	Logs []interface{}
-}
+func assertLoggerMessages(t *testing.T, logger *mockLogger) {
+	t.Helper()
 
-func (l *mockLogger) Info(args ...interface{}) {
-	for _, log := range args {
-		l.Logs = append(l.Logs, log)
+	if len(logger.Logs) < 2 {
+		t.Fatalf("expected at least 2 log messages, got %d", len(logger.Logs))
+	}
+	if logger.Logs[0] != `shutdown started...` {
+		t.Errorf("Logs[0] = %v, want %q", logger.Logs[0], `shutdown started...`)
+	}
+	if logger.Logs[1] != `shutdown complete...` {
+		t.Errorf("Logs[1] = %v, want %q", logger.Logs[1], `shutdown complete...`)
 	}
 }
 
-func (l *mockLogger) Trace(args ...interface{}) {
+type mockLogger struct {
+	Logs []any
+}
+
+func (l *mockLogger) Info(args ...any) {
+	l.Logs = append(l.Logs, args...)
+}
+
+func (l *mockLogger) Trace(args ...any) {
 	l.Info(args...)
 }
