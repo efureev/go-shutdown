@@ -105,7 +105,12 @@ func (s *Shutdown) runOnDestroy(ctx context.Context) error {
 		return fn(ctx)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Detach from the parent context's cancellation before applying the
+	// timeout. WaitContext may reach this point precisely because the parent
+	// context was canceled; deriving the timeout from an already-canceled
+	// context would make the deadline expire immediately and yield a false
+	// ErrShutdownTimeout without giving the callback a chance to run.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
 	resCh := make(chan error, 1)
@@ -130,6 +135,12 @@ func (s *Shutdown) SetLogger(l Logger) *Shutdown {
 
 // SetTimeout limits the time allowed for the OnDestroy callback to complete.
 // A non-positive duration (the default) means no timeout.
+//
+// When the timeout elapses, WaitContext/Wait returns ErrShutdownTimeout and the
+// context passed to the callback is canceled. The callback still runs in its
+// own goroutine, so a callback that ignores ctx cancellation keeps running
+// (and leaks its goroutine) until it finishes on its own; long-running cleanup
+// must honor ctx to be interruptible.
 func (s *Shutdown) SetTimeout(d time.Duration) *Shutdown {
 	s.mu.Lock()
 	s.timeout = d

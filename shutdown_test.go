@@ -250,6 +250,33 @@ func TestShutdownWaitContext(t *testing.T) {
 		}
 	})
 
+	t.Run("context cancellation with timeout still runs destroy", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+
+		ran := make(chan struct{}, 1)
+		sh := New().
+			SetTimeout(time.Second).
+			OnDestroy(func(_ context.Context) error {
+				ran <- struct{}{}
+				return nil
+			})
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel()
+		}()
+
+		if err := sh.WaitContext(ctx); err != nil {
+			t.Fatalf("WaitContext returned %v, want nil", err)
+		}
+
+		select {
+		case <-ran:
+		case <-time.After(time.Second):
+			t.Fatal("destroy callback did not run after context cancellation")
+		}
+	})
+
 	t.Run("OnDestroy context is canceled on timeout", func(t *testing.T) {
 		canceled := make(chan struct{}, 1)
 
