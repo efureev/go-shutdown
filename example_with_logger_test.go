@@ -10,7 +10,7 @@ func Example_with_logger() {
 
 	logger := new(mockLogger)
 	go fn(syscall.SIGTERM)
-	err := WaitWithLogger(logger, syscall.SIGINT, syscall.SIGTERM)
+	err := New().SetLogger(logger).Wait(syscall.SIGINT, syscall.SIGTERM)
 
 	fmt.Fprintln(os.Stdout, logger.Logs[0])
 	fmt.Fprintln(os.Stdout, logger.Logs[1])

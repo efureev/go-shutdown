@@ -13,3 +13,6 @@ coverage.txt
 *.out
 .idea
 .DS_Store
+
+# Local Claude Code settings (machine-specific, never committed)
+.claude/settings.local.json

@@ -13,10 +13,11 @@ func Example_with_destroy_func() {
 	go fn(syscall.SIGTERM)
 
 	test := ``
-	err := OnDestroy(func(_ context.Context) error {
-		test = `test`
-		return nil
-	}).
+	err := New().
+		OnDestroy(func(_ context.Context) error {
+			test = `test`
+			return nil
+		}).
 		SetLogger(logger).
 		Wait()
 
