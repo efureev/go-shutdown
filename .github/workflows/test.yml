@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
       - uses: golangci/golangci-lint-action@v9 # Action page: <https://github.com/golangci/golangci-lint-action>
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
       # Fails when go.mod/go.sum are not what `go mod tidy` would produce.
@@ -89,7 +89,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
       - uses: actions/cache@v6
