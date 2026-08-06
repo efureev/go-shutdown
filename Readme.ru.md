@@ -1,117 +1,61 @@
 [![Test](https://github.com/efureev/go-shutdown/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/go-shutdown/actions/workflows/test.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/efureev/go-shutdown.svg)](https://pkg.go.dev/github.com/efureev/go-shutdown)
-[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/go-shutdown)](https://goreportcard.com/report/github.com/efureev/go-shutdown)
+[![Go Reference](https://pkg.go.dev/badge/github.com/efureev/go-shutdown/v3.svg)](https://pkg.go.dev/github.com/efureev/go-shutdown/v3)
+[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/go-shutdown/v3)](https://goreportcard.com/report/github.com/efureev/go-shutdown/v3)
 
 # Shutdown
 
-`go-shutdown` — небольшой пакет для **graceful shutdown** Go-приложений и
-сервисов.
+> Read this in other languages: [English](Readme.md)
 
-Он блокирует выполнение и ожидает сигналы операционной системы
-(по умолчанию `SIGINT`, `SIGTERM`, `SIGQUIT`), а при их получении выполняет
-вашу функцию очистки (закрытие соединений, остановка воркеров, сброс буферов
-и т.п.) перед завершением процесса.
+`go-shutdown` — небольшой пакет без зависимостей для **graceful shutdown**
+Go-приложений и сервисов.
+
+Он ожидает сигналы операционной системы (по умолчанию `SIGINT`, `SIGTERM`,
+`SIGQUIT`), отмену контекста либо ручную команду, а затем выполняет ваши хуки
+очистки — закрытие соединений, остановку воркеров, сброс буферов — перед
+завершением процесса.
 
 ## Возможности
 
-- Ожидание стандартных или произвольных сигналов ОС.
-- Произвольное число хуков очистки: `Add(name, func(context.Context) error)`
-  и безымянный `OnDestroy(func(context.Context) error)`. Хуки выполняются в
-  порядке, обратном регистрации (LIFO); каждый выполняется, даже если
-  предыдущий вернул ошибку, а ошибки объединяются и возвращаются.
-- Ограничение времени очистки через `SetTimeout(d)` — единый бюджет на всю
-  последовательность хуков (по таймауту хуки получают отменённый контекст,
-  возвращается `ErrShutdownTimeout`).
-- Интеграция с `context.Context` через `WaitContext(ctx, ...)`. Контекст,
-  передаваемый хукам, отвязан от него: отмена контекста, который вы ожидаете,
-  запускает очистку, а не прерывает её.
-- Принудительное завершение: сигнал, пришедший во время очистки, завершает
-  процесс с кодом `128+signum` — зависший хук можно прервать. Отключается
-  через `SetForceOnSecondSignal(false)`.
-- Определение причины остановки: `Reason()` (`ReasonSignal`, `ReasonContext`,
-  `ReasonManual`), `Signal()` и `ExitCode()` по конвенции `128+signum`.
-- Опциональный логгер через интерфейс `Logger`.
-- Ручная инициация остановки методом `End()` (неблокирующий, идемпотентный).
-- Готовый к использованию глобальный экземпляр и пакетные алиасы
-  (`Wait`, `WaitWithLogger`, `OnDestroy`, `Add`, `End`), а также собственный
-  экземпляр через `New()`.
-
-`Shutdown` выполняет свои хуки один раз. Повторный `Wait` на экземпляре, чья
-очистка уже завершилась, немедленно возвращает ту же ошибку, а конкурентные
-вызовы `Wait` получают результат одного и того же прогона очистки.
-
-## Переход с v2.0.x
-
-**`OnDestroy` теперь добавляет** хук, а не заменяет ранее зарегистрированный.
-Раньше второй вызов молча терял первый колбэк — очистка пропадала всякий раз,
-когда два компонента использовали общий `DefaultShutdown`. Если вы полагались
-на поведение с заменой, вызовите сначала `ResetHooks()`.
-
-**Сигнал, полученный во время очистки, теперь завершает процесс.** Раньше он
-проглатывался, и зависший хук можно было прервать только через `SIGKILL`.
-Если очистку нельзя прерывать, вызовите `SetForceOnSecondSignal(false)`.
-
-**Повторный `Wait` больше не блокируется навсегда** — он возвращает ошибку уже
-выполненной очистки. Это делает экземпляр одноразовым: для нескольких циклов
-остановки (например, в тестах) нужен новый экземпляр из `New()`.
+- **Произвольное число именованных хуков очистки.** Выполняются в порядке,
+  обратном регистрации (LIFO), — подсистемы гасятся в порядке, обратном запуску.
+- **Параллельные группы.** Подряд идущие хуки с `Parallel()` выполняются
+  одновременно; обычный хук служит барьером между группами.
+- **Таймауты на двух уровнях.** `WithTimeout` ограничивает всю
+  последовательность, `HookTimeout` — отдельный хук. По таймауту ошибка
+  называет хуки, которые не успели.
+- **Каждый хук выполняется, даже если предыдущий вернул ошибку.** Ошибки
+  объединяются и оборачиваются в `HookError`, так что `errors.As` доходит до
+  конкретного сбоя.
+- **Наблюдаемость без блокировки.** `Done()` и `Context()` позволяют воркерам
+  реагировать на остановку, не вызывая `Wait`.
+- **Принудительное завершение.** Сигнал, пришедший во время очистки, завершает
+  процесс с кодом `128+signum` — зависший хук можно прервать.
+- **Определение причины.** `Reason()`, `Signal()`, `ExitCode()`.
+- **Структурное логирование** через `*slog.Logger`. По умолчанию молчит.
+- **Ноль зависимостей.** Только стандартная библиотека.
 
 ## Установка
 
 ```bash
-go get -u github.com/efureev/go-shutdown/v2
+go get -u github.com/efureev/go-shutdown/v3
 ```
 
-## Примеры использования
+## Использование
 
-Простейший вариант — дождаться сигнала завершения:
-
-```go
-import "github.com/efureev/go-shutdown/v2"
-
-func main() {
-    // ... запуск приложения ...
-
-    shutdown.Wait()
-}
-```
-
-Ожидание конкретных сигналов с логгером:
-
-```go
-import (
-    "syscall"
-
-    "github.com/efureev/go-shutdown/v2"
-)
-
-func main() {
-    // ... запуск приложения ...
-
-    shutdown.WaitWithLogger(logger, syscall.SIGINT, syscall.SIGTERM)
-}
-```
-
-С функцией очистки и логгером (колбэк получает `context.Context` и
-возвращает `error`):
+Простейший случай — дождаться сигнала завершения, без очистки:
 
 ```go
 import (
     "context"
 
-    "github.com/efureev/go-shutdown/v2"
+    "github.com/efureev/go-shutdown/v3"
 )
 
 func main() {
     // ... запуск приложения ...
 
-    err := shutdown.
-        OnDestroy(func(ctx context.Context) error {
-            return module.processing.EndJobListen(ctx)
-        }).
-        SetLogger(module.Log()).
-        Wait()
-    if err != nil {
-        // обработка ошибки очистки
+    if err := shutdown.Wait(context.Background()); err != nil {
+        log.Fatal(err)
     }
 }
 ```
@@ -119,60 +63,113 @@ func main() {
 Несколько подсистем, останавливаемых в порядке, обратном запуску:
 
 ```go
-sh := shutdown.New().SetTimeout(15 * time.Second)
+sh := shutdown.New(
+    shutdown.WithTimeout(15*time.Second),
+    shutdown.WithLogger(slog.Default()),
+)
 
-sh.Add("http", func(ctx context.Context) error { return srv.Shutdown(ctx) })
-sh.Add("consumer", func(ctx context.Context) error { return consumer.Stop(ctx) })
 sh.Add("db", func(context.Context) error { return db.Close() })
+sh.Add("cache", func(ctx context.Context) error { return cache.Flush(ctx) }, shutdown.Parallel())
+sh.Add("search", func(ctx context.Context) error { return search.Flush(ctx) }, shutdown.Parallel())
+sh.Add("http", func(ctx context.Context) error { return srv.Shutdown(ctx) })
 
-// При остановке: db → consumer → http. Сбой одного хука не останавливает
-// остальные; err объединяет все ошибки, каждая помечена именем своего хука.
-if err := sh.Wait(); err != nil {
-    log.Printf("остановка завершилась с ошибками: %v", err)
-}
-```
-
-Отдельный экземпляр (рекомендуется вместо общего глобального состояния):
-
-```go
-sh := shutdown.New().
-    SetTimeout(10 * time.Second).
-    OnDestroy(func(ctx context.Context) error { return srv.Shutdown(ctx) })
-
-if err := sh.Wait(); err != nil {
-    log.Fatal(err)
-}
-```
-
-Сообщить, почему процесс остановился, и выйти с соответствующим кодом:
-
-```go
-sh := shutdown.New().OnDestroy(func(ctx context.Context) error { return srv.Shutdown(ctx) })
-
-if err := sh.Wait(); err != nil {
+// порядок остановки: http, затем cache и search вместе, затем db
+if err := sh.Wait(context.Background()); err != nil {
     log.Printf("очистка завершилась с ошибкой: %v", err)
 }
-
-// reason=signal signal=terminated code=143
-log.Printf("reason=%s signal=%v code=%d", sh.Reason(), sh.Signal(), sh.ExitCode())
 
 os.Exit(sh.ExitCode())
 ```
 
-`Signal()` возвращает `nil`, если `Reason()` не равен `ReasonSignal`, а
-`ExitCode()` даёт `0` для любой причины, кроме сигнала. Ошибки очистки на код
-выхода не влияют — это решение вызывающего.
-
-Остановка по сигналу либо по отмене внешнего контекста:
+Воркеры реагируют на остановку, не блокируясь в `Wait`:
 
 ```go
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel()
-
-if err := shutdown.New().WaitContext(ctx); err != nil {
-    log.Fatal(err)
+for {
+    select {
+    case <-sh.Done():
+        return
+    case job := <-jobs:
+        process(job)
+    }
 }
 ```
+
+`sh.Context()` — тот же сигнал в виде `context.Context`: его можно передавать
+дальше и выводить из него дочерние. Его `context.Cause` — `ErrShutdown`.
+
+Узнать, какой именно хук упал:
+
+```go
+var hookErr *shutdown.HookError
+if errors.As(sh.Wait(ctx), &hookErr) {
+    log.Printf("подсистема %q не остановилась: %v", hookErr.Hook, hookErr.Err)
+}
+```
+
+Отдельный бюджет для медленной подсистемы:
+
+```go
+sh.Add("drain", drainQueue, shutdown.HookTimeout(5*time.Second))
+```
+
+По истечении `Wait` возвращает ошибку, оборачивающую `ErrTimeout` (а значит и
+`context.DeadlineExceeded`), с именами хуков, которые не успели. Хук,
+игнорирующий свой контекст, продолжает работать в своей горутине, поэтому
+длительная очистка обязана уважать `ctx`, чтобы быть прерываемой.
+
+## Ручная остановка
+
+`End()` запускает остановку из кода. Неблокирующий, идемпотентный, может
+вызываться до или после `Wait`.
+
+Экземпляр одноразовый: после завершения очистки `Wait` немедленно возвращает
+тот же результат, и все конкурентные вызовы `Wait` получают его же.
+
+## Поддержка платформ
+
+Пакет **ориентирован на POSIX**. Набор сигналов по умолчанию —
+`SIGINT`, `SIGTERM`, `SIGQUIT` — это отражает.
+
+Под Windows он собирается, и CI кросс-компилирует его для `windows/amd64` на
+каждый push, но POSIX-сигналов там нет: Go доставляет только `os.Interrupt`
+(Ctrl-C и Ctrl-Break). `SIGTERM` и `SIGQUIT` объявлены пакетом `syscall`, но
+никогда не доставляются, поэтому сборка под Windows должна указывать сигналы
+явно:
+
+```go
+sh := shutdown.New(shutdown.WithSignals(os.Interrupt))
+```
+
+Отмена контекста, переданного в `Wait`, и `End()` работают везде. Тесты
+гоняются на Linux и macOS.
+
+## Гарантии
+
+Что пакет обещает, а чего намеренно не делает:
+
+- **Хуки выполняются ровно один раз на экземпляр.** Повторные и конкурентные
+  вызовы `Wait` получают результат этого единственного прогона.
+- **Порядок — обратный регистрации (LIFO).** Параллельную группу образуют
+  только соседние по регистрации хуки; вставленный между ними обычный хук
+  разбивает её.
+- **Каждый хук выполняется, даже если предыдущий упал.** Все сбои объединяются.
+- **Хуки получают контекст, отвязанный от того, который вы ожидали,** поэтому
+  отмена контекста запускает очистку, а не прерывает её. Значения исходного
+  контекста сохраняются, отмена — нет.
+- **Таймаут отменяет контекст хука, но не останавливает сам хук.** Хук,
+  игнорирующий `ctx`, продолжает работать в своей горутине, а его результат
+  отбрасывается. Уважайте `ctx`, если очистка должна быть прерываемой.
+- **Принудительное завершение вызывает `os.Exit`.** Отложенные функции в
+  остальной программе не выполнятся — в этом и смысл, и поэтому его можно
+  отключить.
+- **Причина фиксируется один раз:** выигрывает первый триггер, поэтому
+  сигнальная остановка не переименовывается тем `End`, который будит
+  остальных ожидающих.
+- **Ничего не логируется, пока вы не передали логгер.**
+
+## Переход с v2
+
+API изменился существенно — см. [MIGRATION.md](MIGRATION.md).
 
 ## Лицензия
 

@@ -1,121 +1,60 @@
 [![Test](https://github.com/efureev/go-shutdown/actions/workflows/test.yml/badge.svg)](https://github.com/efureev/go-shutdown/actions/workflows/test.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/efureev/go-shutdown.svg)](https://pkg.go.dev/github.com/efureev/go-shutdown)
-[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/go-shutdown)](https://goreportcard.com/report/github.com/efureev/go-shutdown)
+[![Go Reference](https://pkg.go.dev/badge/github.com/efureev/go-shutdown/v3.svg)](https://pkg.go.dev/github.com/efureev/go-shutdown/v3)
+[![Go Report Card](https://goreportcard.com/badge/github.com/efureev/go-shutdown/v3)](https://goreportcard.com/report/github.com/efureev/go-shutdown/v3)
 
 # Shutdown
 
 > Read this in other languages: [Русский](Readme.ru.md)
 
-`go-shutdown` is a small package for **graceful shutdown** of Go applications
-and services.
+`go-shutdown` is a small, dependency-free package for **graceful shutdown** of
+Go applications and services.
 
-It blocks execution and waits for operating system signals (by default
-`SIGINT`, `SIGTERM`, `SIGQUIT`), and when one is received it runs your cleanup
-function (closing connections, stopping workers, flushing buffers, etc.) before
-the process exits.
+It waits for OS signals (by default `SIGINT`, `SIGTERM`, `SIGQUIT`), for the
+cancellation of a context, or for a manual trigger, and then runs your cleanup
+hooks — closing connections, stopping workers, flushing buffers — before the
+process exits.
 
 ## Features
 
-- Waiting for standard or custom OS signals.
-- Any number of cleanup hooks: `Add(name, func(context.Context) error)` and
-  the unnamed `OnDestroy(func(context.Context) error)`. Hooks run in reverse
-  registration order (LIFO), every hook runs even if an earlier one failed,
-  and the errors are joined and returned.
-- Limiting the cleanup time via `SetTimeout(d)` — one budget for the whole
-  hook sequence (on timeout the hooks receive a canceled context and
-  `ErrShutdownTimeout` is returned).
-- Integration with `context.Context` via `WaitContext(ctx, ...)`. The context
-  handed to the hooks is detached from it, so cancelling the context you wait
-  on starts the cleanup instead of aborting it.
-- A force quit: a signal arriving while the cleanup is still running
-  terminates the process with exit code `128+signum`, so a hung hook can be
-  interrupted. Opt out with `SetForceOnSecondSignal(false)`.
-- Introspection of what triggered the shutdown: `Reason()` (`ReasonSignal`,
-  `ReasonContext`, `ReasonManual`), `Signal()` and `ExitCode()` following the
-  `128+signum` convention.
-- An optional logger through the `Logger` interface.
-- Manual shutdown triggering via `End()` (non-blocking, idempotent).
-- A ready-to-use global instance and package-level aliases
-  (`Wait`, `WaitWithLogger`, `OnDestroy`, `Add`, `End`), as well as a
-  dedicated instance via `New()`.
-
-A `Shutdown` runs its hooks once. Calling `Wait` again on an instance whose
-cleanup already finished returns that same error immediately, and concurrent
-`Wait` callers all receive the result of the single cleanup run.
-
-## Upgrading from v2.0.x
-
-**`OnDestroy` now appends** a hook instead of replacing the previously
-registered one. Previously a second call silently dropped the first callback,
-which lost cleanup whenever two components shared `DefaultShutdown`. If you
-relied on the replacing behavior, call `ResetHooks()` first.
-
-**A signal received during cleanup now terminates the process.** Previously it
-was swallowed, which left a hung hook interruptible only by `SIGKILL`. If your
-cleanup must never be interrupted, call `SetForceOnSecondSignal(false)`.
-
-**A repeated `Wait` no longer blocks forever.** It returns the error of the
-cleanup that already ran. Note that this makes an instance single-use: reusing
-one across several shutdown cycles (in tests, for example) needs a fresh
-instance from `New()`.
+- **Any number of named cleanup hooks.** They run in reverse registration
+  order (LIFO), so subsystems are torn down in the opposite order they were
+  brought up.
+- **Parallel groups.** Consecutive hooks marked `Parallel()` run together; a
+  plain hook is a barrier between groups.
+- **Timeouts at both levels.** `WithTimeout` bounds the whole sequence,
+  `HookTimeout` bounds one hook. A timeout names the hooks still running.
+- **Every hook runs even if an earlier one failed.** Failures are joined and
+  wrapped in `HookError`, so `errors.As` reaches the one that failed.
+- **Observability without blocking.** `Done()` and `Context()` let workers
+  react to the shutdown without anyone calling `Wait`.
+- **A force quit.** A signal arriving while cleanup is running terminates the
+  process with exit code `128+signum`, so a hung hook can be interrupted.
+- **Introspection.** `Reason()`, `Signal()` and `ExitCode()`.
+- **Structured logging** through `*slog.Logger`. Silent by default.
+- **Zero dependencies.** Standard library only.
 
 ## Installation
 
 ```bash
-go get -u github.com/efureev/go-shutdown/v2
+go get -u github.com/efureev/go-shutdown/v3
 ```
 
-## Usage examples
+## Usage
 
-The simplest case — wait for a termination signal:
-
-```go
-import "github.com/efureev/go-shutdown/v2"
-
-func main() {
-    // ... start the application ...
-
-    shutdown.Wait()
-}
-```
-
-Wait for specific signals with a logger:
-
-```go
-import (
-    "syscall"
-
-    "github.com/efureev/go-shutdown/v2"
-)
-
-func main() {
-    // ... start the application ...
-
-    shutdown.WaitWithLogger(logger, syscall.SIGINT, syscall.SIGTERM)
-}
-```
-
-With a cleanup function and a logger (the callback receives a
-`context.Context` and returns an `error`):
+The simplest case — wait for a termination signal, no cleanup:
 
 ```go
 import (
     "context"
 
-    "github.com/efureev/go-shutdown/v2"
+    "github.com/efureev/go-shutdown/v3"
 )
 
 func main() {
     // ... start the application ...
 
-    err := shutdown.
-        OnDestroy(func(ctx context.Context) error {
-            return module.processing.EndJobListen(ctx)
-        }).
-        SetLogger(module.Log()).
-        Wait()
-    if err != nil {
-        // handle cleanup error
+    if err := shutdown.Wait(context.Background()); err != nil {
+        log.Fatal(err)
     }
 }
 ```
@@ -123,60 +62,111 @@ func main() {
 Several subsystems, torn down in the opposite order they were started:
 
 ```go
-sh := shutdown.New().SetTimeout(15 * time.Second)
+sh := shutdown.New(
+    shutdown.WithTimeout(15*time.Second),
+    shutdown.WithLogger(slog.Default()),
+)
 
-sh.Add("http", func(ctx context.Context) error { return srv.Shutdown(ctx) })
-sh.Add("consumer", func(ctx context.Context) error { return consumer.Stop(ctx) })
 sh.Add("db", func(context.Context) error { return db.Close() })
+sh.Add("cache", func(ctx context.Context) error { return cache.Flush(ctx) }, shutdown.Parallel())
+sh.Add("search", func(ctx context.Context) error { return search.Flush(ctx) }, shutdown.Parallel())
+sh.Add("http", func(ctx context.Context) error { return srv.Shutdown(ctx) })
 
-// On shutdown: db → consumer → http. A failing hook does not stop the rest;
-// err joins every failure, each annotated with its hook name.
-if err := sh.Wait(); err != nil {
-    log.Printf("shutdown finished with errors: %v", err)
-}
-```
-
-A dedicated instance (recommended over the shared global state):
-
-```go
-sh := shutdown.New().
-    SetTimeout(10 * time.Second).
-    OnDestroy(func(ctx context.Context) error { return srv.Shutdown(ctx) })
-
-if err := sh.Wait(); err != nil {
-    log.Fatal(err)
-}
-```
-
-Reporting why the process stopped, and exiting accordingly:
-
-```go
-sh := shutdown.New().OnDestroy(func(ctx context.Context) error { return srv.Shutdown(ctx) })
-
-if err := sh.Wait(); err != nil {
+// teardown: http, then cache and search together, then db
+if err := sh.Wait(context.Background()); err != nil {
     log.Printf("cleanup failed: %v", err)
 }
-
-// reason=signal signal=terminated code=143
-log.Printf("reason=%s signal=%v code=%d", sh.Reason(), sh.Signal(), sh.ExitCode())
 
 os.Exit(sh.ExitCode())
 ```
 
-`Signal()` returns `nil` unless `Reason()` is `ReasonSignal`, and `ExitCode()`
-is `0` for every reason other than a signal. Cleanup errors do not affect the
-exit code — that call is yours.
-
-Stop on a signal or on the cancellation of an external context:
+Workers react to the shutdown without blocking in `Wait`:
 
 ```go
-ctx, cancel := context.WithCancel(context.Background())
-defer cancel()
-
-if err := shutdown.New().WaitContext(ctx); err != nil {
-    log.Fatal(err)
+for {
+    select {
+    case <-sh.Done():
+        return
+    case job := <-jobs:
+        process(job)
+    }
 }
 ```
+
+`sh.Context()` is the same signal as a `context.Context`, so it can be passed
+down or derived from. Its `context.Cause` is `ErrShutdown`.
+
+Finding out which hook failed:
+
+```go
+var hookErr *shutdown.HookError
+if errors.As(sh.Wait(ctx), &hookErr) {
+    log.Printf("subsystem %q failed to stop: %v", hookErr.Hook, hookErr.Err)
+}
+```
+
+Giving one slow subsystem its own budget:
+
+```go
+sh.Add("drain", drainQueue, shutdown.HookTimeout(5*time.Second))
+```
+
+On expiry `Wait` returns an error wrapping `ErrTimeout` (and therefore
+`context.DeadlineExceeded`) that names the hooks still running. A hook that
+ignores its context keeps running in its own goroutine, so long cleanup must
+honor `ctx` to be interruptible.
+
+## Stopping manually
+
+`End()` starts the shutdown from code. It is non-blocking, idempotent, and may
+be called before or after `Wait`.
+
+An instance is single use: once its cleanup has finished, `Wait` returns that
+same result immediately, and concurrent callers of `Wait` all receive it.
+
+## Platform support
+
+The package is **POSIX-oriented**. The default signal set —
+`SIGINT`, `SIGTERM`, `SIGQUIT` — reflects that.
+
+It compiles for Windows, and CI cross-compiles it for `windows/amd64` on every
+push, but Windows has no POSIX signals: Go delivers only `os.Interrupt`
+(Ctrl-C and Ctrl-Break). `SIGTERM` and `SIGQUIT` are declared by the `syscall`
+package there and are simply never delivered, so a Windows build should say so
+explicitly:
+
+```go
+sh := shutdown.New(shutdown.WithSignals(os.Interrupt))
+```
+
+Cancelling the context passed to `Wait`, and `End()`, work everywhere. Tests
+run on Linux and macOS.
+
+## Guarantees
+
+What the package promises, and what it deliberately does not:
+
+- **Hooks run exactly once per instance.** Repeated and concurrent `Wait`
+  calls all receive the result of that single run.
+- **Order is reverse registration (LIFO).** A parallel group is formed only by
+  hooks registered next to each other; inserting a plain hook splits it.
+- **Every hook runs even if an earlier one failed.** All failures are joined.
+- **Hooks get a context detached from the one you waited on,** so cancelling
+  that context starts the cleanup rather than aborting it. It carries the
+  values of the original context, but not its cancellation.
+- **A timeout cancels the hook context, it does not stop the hook.** A hook
+  that ignores `ctx` keeps running in its own goroutine and its result is
+  discarded. Honor `ctx` if you want cleanup to be interruptible.
+- **The force quit calls `os.Exit`.** Deferred functions elsewhere in your
+  program do not run — that is the point of a force quit, and it is why it can
+  be turned off.
+- **The reason is recorded once:** the first trigger wins, so a signal-driven
+  shutdown is never relabelled by the `End` that releases the other waiters.
+- **Nothing is logged until you pass a logger.**
+
+## Upgrading from v2
+
+The API changed substantially — see [MIGRATION.md](MIGRATION.md).
 
 ## License
 

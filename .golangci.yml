@@ -6,17 +6,34 @@ linters:
   default: none
   enable:
     - bodyclose
+    - contextcheck
+    - copyloopvar
     - errcheck
     - errorlint
+    - gocritic
     - govet
     - ineffassign
     - misspell
+    - nilerr
+    - predeclared
+    - revive
     - staticcheck
     - unconvert
     - unused
+    - usetesting
   settings:
     misspell:
       locale: US
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: early-return
   exclusions:
     generated: lax
     presets:

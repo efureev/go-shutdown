@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a capability the package is missing
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This library is deliberately small and has no external dependencies.
+        Proposals that keep it that way are much easier to accept.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do, and where does the package get in the way?
+        Please describe the situation rather than the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today
+      description: How you work around it with the current API.
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: |
+        A sketch, if you have one. Note that changing an existing exported
+        identifier requires a new major version and a new module path, so
+        additive designs are strongly preferred.
+      render: go
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This can be implemented with the standard library only.
+        - label: This does not change the signature of an existing exported identifier.

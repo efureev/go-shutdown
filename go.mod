@@ -1,3 +1,3 @@
-module github.com/efureev/go-shutdown/v2
+module github.com/efureev/go-shutdown/v3
 
 go 1.24
