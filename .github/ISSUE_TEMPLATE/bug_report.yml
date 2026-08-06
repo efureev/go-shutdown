@@ -1,0 +1,56 @@
+name: Bug report
+description: Something behaves differently than documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security issues here — see
+        [SECURITY.md](https://github.com/efureev/go-shutdown/blob/master/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: The module version you import, e.g. v3.0.0.
+      placeholder: v3.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version and platform
+      description: Output of `go version`.
+      placeholder: go version go1.24.0 linux/amd64
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: |
+        The smallest program that shows the problem. Please include how the
+        shutdown is triggered — an OS signal, a canceled context, or `End()` —
+        and the hooks involved, since the teardown order and timeouts matter.
+      render: go
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Output with a logger attached, if you have it:
+        `shutdown.New(shutdown.WithLogger(slog.Default()))` at debug level.
+      render: text

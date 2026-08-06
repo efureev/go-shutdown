@@ -124,6 +124,46 @@ be called before or after `Wait`.
 An instance is single use: once its cleanup has finished, `Wait` returns that
 same result immediately, and concurrent callers of `Wait` all receive it.
 
+## Platform support
+
+The package is **POSIX-oriented**. The default signal set —
+`SIGINT`, `SIGTERM`, `SIGQUIT` — reflects that.
+
+It compiles for Windows, and CI cross-compiles it for `windows/amd64` on every
+push, but Windows has no POSIX signals: Go delivers only `os.Interrupt`
+(Ctrl-C and Ctrl-Break). `SIGTERM` and `SIGQUIT` are declared by the `syscall`
+package there and are simply never delivered, so a Windows build should say so
+explicitly:
+
+```go
+sh := shutdown.New(shutdown.WithSignals(os.Interrupt))
+```
+
+Cancelling the context passed to `Wait`, and `End()`, work everywhere. Tests
+run on Linux and macOS.
+
+## Guarantees
+
+What the package promises, and what it deliberately does not:
+
+- **Hooks run exactly once per instance.** Repeated and concurrent `Wait`
+  calls all receive the result of that single run.
+- **Order is reverse registration (LIFO).** A parallel group is formed only by
+  hooks registered next to each other; inserting a plain hook splits it.
+- **Every hook runs even if an earlier one failed.** All failures are joined.
+- **Hooks get a context detached from the one you waited on,** so cancelling
+  that context starts the cleanup rather than aborting it. It carries the
+  values of the original context, but not its cancellation.
+- **A timeout cancels the hook context, it does not stop the hook.** A hook
+  that ignores `ctx` keeps running in its own goroutine and its result is
+  discarded. Honor `ctx` if you want cleanup to be interruptible.
+- **The force quit calls `os.Exit`.** Deferred functions elsewhere in your
+  program do not run — that is the point of a force quit, and it is why it can
+  be turned off.
+- **The reason is recorded once:** the first trigger wins, so a signal-driven
+  shutdown is never relabelled by the `End` that releases the other waiters.
+- **Nothing is logged until you pass a logger.**
+
 ## Upgrading from v2
 
 The API changed substantially — see [MIGRATION.md](MIGRATION.md).
