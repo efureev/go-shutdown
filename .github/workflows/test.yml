@@ -64,7 +64,7 @@ jobs:
           - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
       - name: Go build
@@ -103,7 +103,7 @@ jobs:
       - name: Coverage summary
         run: go tool cover -func=coverage.out | tail -1 >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.os }}
           path: coverage.out
